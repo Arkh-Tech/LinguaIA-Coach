@@ -816,7 +816,6 @@
       const genQuiz = async () => {
       if (!settings.model || !article) { setQuizError('Select model/article.'); return; }
       setQuizLoading(true); setQuizError(''); setQuiz(null); setQuizAnswers({});
-        console.log(article);
       try {
         const prompt = `You are an expert English language teacher creating a reading comprehension assessment.
 
