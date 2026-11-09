@@ -66,6 +66,7 @@
       pause: <><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></>,
       eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>,
       'layers': <><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></>,
+      'message-square': <><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>,
       };
 
       function Icon({ name, className = 'w-5 h-5' }) {
@@ -101,6 +102,25 @@
       });
       useEffect(() => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }, [key, val]);
       return [val, setVal];
+      }
+
+      function safeText(v) {
+      if (v == null) return '';
+      if (typeof v === 'string') return v;
+      if (Array.isArray(v)) return v.map(safeText).join(', ');
+      if (typeof v === 'object') {
+      return v.pt || v['pt-BR'] || v.pt_br || v.en || v['en-US'] || Object.values(v).map(safeText).join(' ');
+      }
+      return String(v);
+      }
+
+      function normalizeVocabData(data) {
+      if (!data) return null;
+      return {
+      translation: safeText(data.translation),
+      definition: safeText(data.definition),
+      examples: Array.isArray(data.examples) ? data.examples.map(safeText) : (data.examples ? [safeText(data.examples)] : []),
+      };
       }
 
       function parseJSON(text) {
@@ -176,7 +196,7 @@
       const speak = useCallback((text) => {
       if (!window.speechSynthesis || !text) return;
       try { window.speechSynthesis.cancel(); } catch {}
-      const u = new SpeechSynthesisUtterance(text);
+      const u = new SpeechSynthesisUtterance(String(text));
       u.lang = settings.accent;
       u.rate = parseFloat(settings.rate) || 1;
       const v = voices.find(x => x.lang === settings.accent) || voices.find(x => x.lang && x.lang.startsWith(settings.accent.split('-')[0]));
@@ -238,18 +258,20 @@
       return <svg className={cls('animate-spin', className)} viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg>;
       }
 
-      /* ---------------- Word Modal ---------------- */
-      function WordModal({ word, onClose, settings, onSpeak }) {
+      /* ---------------- Word Modal (Reading) ---------------- */
+      function WordModal({ word, onClose, settings, onSpeak, onSaveVocab }) {
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState('');
+      const [saved, setSaved] = useState(false);
 
       useEffect(() => {
+      setSaved(false);
       if (!word) return;
       (async () => {
       setLoading(true); setError(''); setData(null);
       try {
-      const clean = word.toLowerCase().replace(/[^a-z]/g,'');
+      const clean = word.toLowerCase().replace(/[^a-z'-]/g,'').trim();
       if (!clean) { setLoading(false); return; }
       const prompt = `You are an English vocabulary coach. For the word "${clean}", output ONLY JSON with keys:
       - translation: Portuguese translation (string)
@@ -258,18 +280,24 @@
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
-      setData(parsed);
+      setData({
+      translation: safeText(parsed.translation),
+      definition: safeText(parsed.definition),
+      examples: Array.isArray(parsed.examples) ? parsed.examples.map(safeText) : (parsed.examples ? [safeText(parsed.examples)] : []),
+      });
       } catch (e) { setError(e.message); }
       finally { setLoading(false); }
       })();
       }, [word, settings.baseUrl, settings.apiKey, settings.model]);
 
       if (!word) return null;
+      const cleanWord = (word || '').toLowerCase().replace(/[^a-z'-]/g,'').trim();
+
       return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
       <div className="popover w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-5 max-h-[85vh] overflow-auto" onClick={e=>e.stopPropagation()}>
       <div className="flex items-center justify-between mb-3">
-      <h3 className="text-xl font-bold capitalize text-slate-900 dark:text-slate-100">{word}</h3>
+      <h3 className="text-xl font-bold capitalize text-slate-900 dark:text-slate-100">{cleanWord || word}</h3>
       <button onClick={onClose} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"><Icon name="x" className="w-5 h-5"/></button>
     </div>
       {loading && <div className="flex items-center gap-2 py-6 justify-center text-slate-700 dark:text-slate-200"><Spinner/> <span>Looking up...</span></div>}
@@ -290,11 +318,23 @@
       {(data.examples||[]).map((ex,i) => (
       <li key={i} className="flex items-start gap-2 bg-slate-50 dark:bg-slate-800 rounded-lg p-2">
       <span className="text-primary">•</span>
-      <span className="flex-1">{ex}</span>
+      <span className="flex-1 text-sm">{safeText(ex)}</span>
       <button onClick={()=>onSpeak(ex)} className="text-slate-400 hover:text-primary"><Icon name="volume-2" className="w-4 h-4"/></button>
     </li>
       ))}
     </ul>
+    </div>
+      <div className="flex gap-2 pt-2">
+      <Button variant={saved ? 'secondary' : 'accent'} onClick={() => {
+      if (onSaveVocab && cleanWord && data) {
+      onSaveVocab(cleanWord, normalizeVocabData(data));
+      setSaved(true);
+      }
+      }} disabled={saved}>
+      <Icon name={saved ? 'check' : 'bookmark'} className="w-4 h-4"/>
+      {saved ? 'Saved' : 'Save to Vocabulary'}
+    </Button>
+      <Button variant="ghost" onClick={()=>onSpeak(cleanWord)}>Speak word</Button>
     </div>
     </div>
       )}
@@ -307,271 +347,319 @@
       function SettingsPanel({ settings, setSettings }) {
       const [models, setModels] = useState([]);
       const [loading, setLoading] = useState(false);
-  const [connStatus, setConnStatus] = useState('');
+      const [connStatus, setConnStatus] = useState('');
 
-  const fetchModels = async () => {
-    setLoading(true); setConnStatus('');
-    try {
+      const fetchModels = async () => {
+      setLoading(true); setConnStatus('');
+      try {
       const ms = await ollamaFetchModels(settings.baseUrl, settings.apiKey);
       setModels(ms);
       if (ms.length && !settings.model) setSettings(s => ({...s, model: ms[0]}));
       setConnStatus(`Connected. ${ms.length} model(s) found.`);
-    } catch (e) {
+      } catch (e) {
       setConnStatus('Connection failed: ' + e.message);
-    } finally { setLoading(false); }
-  };
+      } finally { setLoading(false); }
+      };
 
-  useEffect(() => { if (settings.baseUrl) fetchModels(); }, [settings.baseUrl]);
+      useEffect(() => { if (settings.baseUrl) fetchModels(); }, [settings.baseUrl]);
 
-  const theme = settings.theme || 'dark';
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.classList.toggle('dark', next === 'dark');
-    setSettings(s => ({...normalizeSettings(s), theme: next }));
-  };
+      const theme = settings.theme || 'dark';
+      const toggleTheme = () => {
+      const next = theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.classList.toggle('dark', next === 'dark');
+      setSettings(s => ({...normalizeSettings(s), theme: next }));
+      };
 
-  const resetAll = () => {
-    ['linguaai_settings','linguaai_chats','linguaai_vocab'].forEach(k => { try { localStorage.removeItem(k); } catch {} });
-    window.location.reload();
-  };
+      const resetAll = () => {
+      ['linguaai_settings','linguaai_chats','linguaai_vocab'].forEach(k => { try { localStorage.removeItem(k); } catch {} });
+      window.location.reload();
+      };
 
-  return (
-    <div className="max-w-2xl mx-auto space-y-6">
+      return (
+      <div className="max-w-2xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="settings"/> Settings</h2>
       <Card className="p-5 space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-1">Ollama Base URL</label>
-          <Input value={settings.baseUrl} onChange={v=>setSettings(s=>({...normalizeSettings(s),baseUrl:v}))} placeholder="http://localhost:11434"/>
-          <p className="text-xs text-slate-500 mt-1">Use local Ollama or a cloud-hosted compatible endpoint.</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">API Key / Auth Token (optional)</label>
-          <Input value={settings.apiKey} onChange={v=>setSettings(s=>({...normalizeSettings(s),apiKey:v}))} placeholder="sk-..." type="password"/>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Model</label>
-          <div className="flex gap-2">
-            <select value={settings.model} onChange={e=>setSettings(s=>({...normalizeSettings(s),model:e.target.value}))}
-              className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
-              <option value="">{models.length ? 'Select model...' : '— fetch models first —'}</option>
-              {models.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <Button onClick={fetchModels} disabled={loading}>{loading ? <Spinner/> : <Icon name="refresh-cw" className="w-4 h-4"/>}</Button>
-          </div>
-          {connStatus && <p className={cls('text-xs mt-1', connStatus.startsWith('Connected') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>{connStatus}</p>}
-        </div>
-        <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
-          <div>
-            <div className="font-medium text-slate-900 dark:text-slate-100">Bilingual Mode</div>
-            <div className="text-xs text-slate-500">Portuguese explanations for grammar/vocab; English core text.</div>
-          </div>
-          <button onClick={()=>setSettings(s=>({...normalizeSettings(s),bilingual:!s.bilingual}))}
-            className={cls('w-12 h-6 rounded-full transition relative', settings.bilingual ? 'bg-primary' : 'bg-slate-400')}>
-            <span className={cls('absolute top-0.5 w-5 h-5 bg-white rounded-full transition', settings.bilingual ? 'left-6' : 'left-0.5')}/>
-          </button>
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium text-slate-900 dark:text-slate-100">Theme</div>
-            <div className="text-xs text-slate-500">Current: {theme === 'dark' ? 'Dark' : 'Light'}</div>
-          </div>
-          <Button variant="secondary" onClick={toggleTheme}>
-            <Icon name={theme==='dark'?'sun':'moon'} className="w-4 h-4"/> {theme==='dark'?'Light mode':'Dark mode'}
-          </Button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-700 pt-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">TTS Accent</label>
-            <select value={settings.accent} onChange={e=>setSettings(s=>({...normalizeSettings(s),accent:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
-              <option value="en-US">American English (en-US)</option>
-              <option value="en-GB">British English (en-GB)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">TTS Speed</label>
-            <select value={settings.rate} onChange={e=>setSettings(s=>({...normalizeSettings(s),rate:parseFloat(e.target.value)}))} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
-              <option value="0.8">0.8x Slow/Clear</option>
-              <option value="1">1.0x Normal</option>
-              <option value="1.2">1.2x Fast</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-medium text-slate-900 dark:text-slate-100">Auto-play AI responses</div>
-            <div className="text-xs text-slate-500">Speak AI replies automatically.</div>
-          </div>
-          <button onClick={()=>setSettings(s=>({...normalizeSettings(s),autoPlay:!s.autoPlay}))}
-            className={cls('w-12 h-6 rounded-full transition relative', settings.autoPlay ? 'bg-primary' : 'bg-slate-400')}>
-            <span className={cls('absolute top-0.5 w-5 h-5 bg-white rounded-full transition', settings.autoPlay ? 'left-6' : 'left-0.5')}/>
-          </button>
-        </div>
-        <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
-          <Button variant="danger" onClick={resetAll}>Reset all data</Button>
-        </div>
-      </Card>
+      <div>
+      <label className="block text-sm font-medium mb-1">Ollama Base URL</label>
+      <Input value={settings.baseUrl} onChange={v=>setSettings(s=>({...normalizeSettings(s),baseUrl:v}))} placeholder="http://localhost:11434"/>
+      <p className="text-xs text-slate-500 mt-1">Use local Ollama or a cloud-hosted compatible endpoint.</p>
+    </div>
+      <div>
+      <label className="block text-sm font-medium mb-1">API Key / Auth Token (optional)</label>
+      <Input value={settings.apiKey} onChange={v=>setSettings(s=>({...normalizeSettings(s),apiKey:v}))} placeholder="sk-..." type="password"/>
+    </div>
+      <div>
+      <label className="block text-sm font-medium mb-1">Model</label>
+      <div className="flex gap-2">
+      <select value={settings.model} onChange={e=>setSettings(s=>({...normalizeSettings(s),model:e.target.value}))}
+      className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+      <option value="">{models.length ? 'Select model...' : '— fetch models first —'}</option>
+      {models.map(m => <option key={m} value={m}>{m}</option>)}
+    </select>
+      <Button onClick={fetchModels} disabled={loading}>{loading ? <Spinner/> : <Icon name="refresh-cw" className="w-4 h-4"/>}</Button>
+    </div>
+      {connStatus && <p className={cls('text-xs mt-1', connStatus.startsWith('Connected') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')}>{connStatus}</p>}
+    </div>
+      <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
+      <div>
+      <div className="font-medium text-slate-900 dark:text-slate-100">Bilingual Mode</div>
+      <div className="text-xs text-slate-500">Portuguese explanations for grammar/vocab; English core text.</div>
+    </div>
+      <button onClick={()=>setSettings(s=>({...normalizeSettings(s),bilingual:!s.bilingual}))}
+      className={cls('w-12 h-6 rounded-full transition relative', settings.bilingual ? 'bg-primary' : 'bg-slate-400')}>
+      <span className={cls('absolute top-0.5 w-5 h-5 bg-white rounded-full transition', settings.bilingual ? 'left-6' : 'left-0.5')}/>
+    </button>
+    </div>
+      <div className="flex items-center justify-between">
+      <div>
+      <div className="font-medium text-slate-900 dark:text-slate-100">Theme</div>
+      <div className="text-xs text-slate-500">Current: {theme === 'dark' ? 'Dark' : 'Light'}</div>
+    </div>
+      <Button variant="secondary" onClick={toggleTheme}>
+      <Icon name={theme==='dark'?'sun':'moon'} className="w-4 h-4"/> {theme==='dark'?'Light mode':'Dark mode'}
+    </Button>
+    </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+      <div>
+      <label className="block text-sm font-medium mb-1">TTS Accent</label>
+      <select value={settings.accent} onChange={e=>setSettings(s=>({...normalizeSettings(s),accent:e.target.value}))} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+      <option value="en-US">American English (en-US)</option>
+      <option value="en-GB">British English (en-GB)</option>
+    </select>
+    </div>
+      <div>
+      <label className="block text-sm font-medium mb-1">TTS Speed</label>
+      <select value={settings.rate} onChange={e=>setSettings(s=>({...normalizeSettings(s),rate:parseFloat(e.target.value)}))} className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+      <option value="0.8">0.8x Slow/Clear</option>
+      <option value="1">1.0x Normal</option>
+      <option value="1.2">1.2x Fast</option>
+    </select>
+    </div>
+    </div>
+      <div className="flex items-center justify-between">
+      <div>
+      <div className="font-medium text-slate-900 dark:text-slate-100">Auto-play AI responses</div>
+      <div className="text-xs text-slate-500">Speak AI replies automatically.</div>
+    </div>
+      <button onClick={()=>setSettings(s=>({...normalizeSettings(s),autoPlay:!s.autoPlay}))}
+      className={cls('w-12 h-6 rounded-full transition relative', settings.autoPlay ? 'bg-primary' : 'bg-slate-400')}>
+      <span className={cls('absolute top-0.5 w-5 h-5 bg-white rounded-full transition', settings.autoPlay ? 'left-6' : 'left-0.5')}/>
+    </button>
+    </div>
+      <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+      <Button variant="danger" onClick={resetAll}>Reset all data</Button>
+    </div>
+    </Card>
       {settings.bilingual && <p className="text-sm text-slate-600 dark:text-slate-300">Modo Bilingue ativado: explicações em português estão habilitadas.</p>}
     </div>
-  );
-}
+      );
+      }
 
-/* ---------------- Translator ---------------- */
-function TranslatorPanel({ settings }) {
-  const [input, setInput] = useState('');
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const run = async () => {
-    if (!input.trim()) return;
-    if (!settings.model) { setError('Select a model in Settings first.'); return; }
-    setLoading(true); setError(''); setResult(null);
-    try {
-      const prompt = `Translate the following Portuguese sentence into natural English. Output ONLY JSON:
-{ "translation": "...", "notes": ["context note in Portuguese", "..."] }
-Sentence: "${input.replace(/"/g,'\\"')}"`;
+      /* ---------------- Translator (with direction toggle) ---------------- */
+      function TranslatorPanel({ settings }) {
+      const [direction, setDirection] = useState('pt-en'); // pt-en | en-pt
+      const [input, setInput] = useState('');
+      const [result, setResult] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      const swapDirection = () => {
+      setDirection(d => d === 'pt-en' ? 'en-pt' : 'pt-en');
+      setResult(null);
+      setError('');
+      };
+
+      const run = async () => {
+      if (!input.trim()) return;
+      if (!settings.model) { setError('Select a model in Settings first.'); return; }
+      setLoading(true); setError(''); setResult(null);
+      try {
+      const ptToEn = direction === 'pt-en';
+      const sourceLang = ptToEn ? 'Portuguese (PT-BR)' : 'English';
+      const targetLang = ptToEn ? 'English' : 'Portuguese (PT-BR)';
+      const prompt = `You are an expert translator. Translate the following ${sourceLang} text into natural ${targetLang}. Output ONLY JSON:
+      { "translation": "...", "notes": ["usage/context note written in Portuguese (PT-BR)", "..."] }
+      Text: "${input.replace(/"/g,'\\"')}"`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
-      setResult(parsed);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  };
-  return (
-    <div className="max-w-2xl mx-auto space-y-4">
-      <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="globe"/> Translator (PT → EN)</h2>
-      <Card className="p-5 space-y-3">
-        <Textarea value={input} onChange={setInput} placeholder="Digite uma frase em português..." className="min-h-[80px]"/>
-        <Button onClick={run} disabled={loading}>{loading ? <Spinner/> : <Icon name="sparkles" className="w-4 h-4"/>} Translate</Button>
-        {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
-        {result && (
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-            <div>
-              <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">English translation</div>
-              <div className="font-medium text-primary text-lg">{result.translation}</div>
-            </div>
-            {result.notes?.length > 0 && (
-              <div>
-                <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Context notes</div>
-                <ul className="list-disc list-inside text-sm space-y-1 text-slate-800 dark:text-slate-100">
-                  {result.notes.map((n,i)=><li key={i}>{n}</li>)}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
+      setResult({
+      translation: safeText(parsed.translation),
+      notes: Array.isArray(parsed.notes) ? parsed.notes.map(safeText) : (parsed.notes ? [safeText(parsed.notes)] : []),
+      });
+      } catch (e) { setError(e.message); }
+      finally { setLoading(false); }
+      };
 
-/* ---------------- Lookup ---------------- */
-function LookupPanel({ settings }) {
-  const [word, setWord] = useState('');
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const run = async (w) => {
-    const target = (w || word).trim();
-    if (!target) return;
-    if (!settings.model) { setError('Select a model in Settings first.'); return; }
-    setLoading(true); setError(''); setData(null);
-    try {
+      const isPtToEn = direction === 'pt-en';
+
+      return (
+      <div className="max-w-2xl mx-auto space-y-4">
+      <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="globe"/> Translator</h2>
+      <Card className="p-5 space-y-3">
+      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2 text-sm font-medium">
+      <span className={cls('px-3 py-1 rounded-full', isPtToEn ? 'bg-primary text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200')}>PT-BR</span>
+      <button onClick={swapDirection} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800" title="Swap direction">
+      <span className="text-lg">⇄</span>
+    </button>
+      <span className={cls('px-3 py-1 rounded-full', !isPtToEn ? 'bg-primary text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200')}>EN</span>
+    </div>
+      <span className="text-xs text-slate-500">{isPtToEn ? 'Portuguese → English' : 'English → Portuguese'}</span>
+    </div>
+      <Textarea value={input} onChange={setInput} placeholder={isPtToEn ? 'Digite uma frase em português...' : 'Type a sentence in English...'} className="min-h-[80px]"/>
+      <Button onClick={run} disabled={loading}>{loading ? <Spinner/> : <Icon name="sparkles" className="w-4 h-4"/>} Translate</Button>
+      {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
+      {result && (
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+      <div>
+      <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Translation</div>
+      <div className="font-medium text-primary text-lg">{result.translation}</div>
+    </div>
+      {result.notes?.length > 0 && (
+      <div>
+      <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Notes (PT-BR)</div>
+      <ul className="list-disc list-inside text-sm space-y-1 text-slate-800 dark:text-slate-100">
+      {result.notes.map((n,i)=><li key={i}>{safeText(n)}</li>)}
+    </ul>
+    </div>
+      )}
+    </div>
+      )}
+    </Card>
+    </div>
+      );
+      }
+
+      /* ---------------- Word Lookup (fixed + safe rendering) ---------------- */
+      function LookupPanel({ settings, onSaveVocab }) {
+      const [lookupInput, setLookupInput] = useState('');
+      const [lookupResult, setLookupResult] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [saved, setSaved] = useState(false);
+
+      const run = async () => {
+      const target = lookupInput.trim();
+      if (!target) return;
+      if (!settings.model) { setError('Select a model in Settings first.'); return; }
+      setLoading(true); setError(''); setLookupResult(null); setSaved(false);
+      try {
       const clean = target.toLowerCase();
       const prompt = `You are an English vocabulary coach. For the word "${clean}", output ONLY JSON with keys:
-- translation: Portuguese translation
-- definition: simple explanation in English and Portuguese
-- examples: array of 3 real-world example sentences in English`;
+      - translation: Portuguese translation (string)
+      - definition: simple explanation in English and Portuguese (string)
+      - examples: array of 3 real-world example sentences in English`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
-      setData(parsed); setWord(clean);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  };
-  return (
-    <div className="max-w-2xl mx-auto space-y-4">
+      setLookupResult({
+      translation: safeText(parsed.translation),
+      definition: safeText(parsed.definition),
+      examples: Array.isArray(parsed.examples) ? parsed.examples.map(safeText) : (parsed.examples ? [safeText(parsed.examples)] : []),
+      });
+      } catch (e) { setError(e.message); }
+      finally { setLoading(false); }
+      };
+
+      return (
+      <div className="max-w-2xl mx-auto space-y-4">
       <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="search"/> Word Lookup</h2>
       <Card className="p-5 space-y-3">
-        <div className="flex gap-2">
-          <Input value={word} onChange={setWord} placeholder="Type an English word..." className="flex-1"/>
-          <Button onClick={()=>run()} disabled={loading}>{loading ? <Spinner/> : <Icon name="search" className="w-4 h-4"/>} Look up</Button>
-        </div>
-        {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
-        {data && (
-          <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100">
-            <div className="text-lg font-bold capitalize">{word}</div>
-            <div><span className="text-xs uppercase text-slate-500 dark:text-slate-400">Translation: </span><span className="text-accent font-medium">{data.translation}</span></div>
-            <div><span className="text-xs uppercase text-slate-500 dark:text-slate-400">Definition: </span>{data.definition}</div>
-            <div>
-              <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Examples</div>
-              <ul className="space-y-2">
-                {(data.examples||[]).map((ex,i)=>(
-                  <li key={i} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2 text-sm">{ex}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-      </Card>
+      <div className="flex gap-2">
+      <Input
+      value={lookupInput}
+      onChange={(v) => { setLookupInput(v); setSaved(false); }}
+      placeholder="Type an English word..."
+      className="flex-1"
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } }}
+      />
+      <Button onClick={run} disabled={loading}>{loading ? <Spinner/> : <Icon name="search" className="w-4 h-4"/>} Look up</Button>
     </div>
-  );
-}
+      {loading && <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm"><Spinner/> Searching…</div>}
+      {error && <div className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
+      {lookupResult && (
+      <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100">
+      <div className="text-lg font-bold capitalize">{lookupInput.trim().toLowerCase()}</div>
+      <div><span className="text-xs uppercase text-slate-500 dark:text-slate-400">Translation: </span><span className="text-accent font-medium">{safeText(lookupResult.translation)}</span></div>
+      <div><span className="text-xs uppercase text-slate-500 dark:text-slate-400">Definition: </span>{safeText(lookupResult.definition)}</div>
+      <div>
+      <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Examples</div>
+      <ul className="space-y-2">
+      {(lookupResult.examples||[]).map((ex,i)=>(
+      <li key={i} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2 text-sm">{safeText(ex)}</li>
+      ))}
+    </ul>
+    </div>
+      <Button variant={saved ? 'secondary' : 'accent'} disabled={saved} onClick={() => {
+      const clean = lookupInput.trim().toLowerCase();
+      if (onSaveVocab && clean && lookupResult) {
+      onSaveVocab(clean, normalizeVocabData(lookupResult));
+      setSaved(true);
+      }
+      }}>
+      <Icon name={saved ? 'check' : 'bookmark'} className="w-4 h-4"/>
+      {saved ? 'Saved' : 'Save to Vocabulary'}
+    </Button>
+    </div>
+      )}
+    </Card>
+    </div>
+      );
+      }
 
-/* ---------------- Chat ---------------- */
-function ChatPanel({ settings, onSpeak }) {
-  const [scenario, setScenario] = useState('casual');
-  const [chats, setChats] = useLocalStorage('linguaai_chats', {});
-  const [messages, setMessages] = useState(chats[scenario] || []);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const bottomRef = useRef(null);
-  const recRef = useRef(null);
-  const [listening, setListening] = useState(false);
+      /* ---------------- Chat ---------------- */
+      function ChatPanel({ settings, onSpeak }) {
+      const [scenario, setScenario] = useState('casual');
+      const [chats, setChats] = useLocalStorage('linguaai_chats', {});
+      const [messages, setMessages] = useState(chats[scenario] || []);
+      const [input, setInput] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const bottomRef = useRef(null);
+      const recRef = useRef(null);
+      const [listening, setListening] = useState(false);
 
-  useEffect(() => { setMessages(chats[scenario] || []); }, [scenario]);
+      useEffect(() => { setMessages(chats[scenario] || []); }, [scenario]);
+      useEffect(() => { if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
-  useEffect(() => {
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+      const persist = (next) => {
+      setMessages(next);
+      setChats(prev => ({ ...prev, [scenario]: next }));
+      };
 
-  const persist = (next) => {
-    setMessages(next);
-    setChats(prev => ({ ...prev, [scenario]: next }));
-  };
-
-  const send = async (textOverride) => {
-    const text = (textOverride ?? input).trim();
-    if (!text) return;
-    if (!settings.model) { setError('Select a model in Settings first.'); return; }
-    setError('');
-    const userMsg = { role: 'user', content: text };
-    const next = [...messages, userMsg];
-    persist(next);
-    setInput('');
-    setLoading(true);
-    try {
+      const send = async (textOverride) => {
+      const text = (textOverride ?? input).trim();
+      if (!text) return;
+      if (!settings.model) { setError('Select a model in Settings first.'); return; }
+      setError('');
+      const userMsg = { role: 'user', content: text };
+      const next = [...messages, userMsg];
+      persist(next);
+      setInput('');
+      setLoading(true);
+      try {
       const sc = SCENARIOS.find(s=>s.id===scenario) || SCENARIOS[2];
       const system = `You are an English conversation partner. Scenario: ${sc.name} - ${sc.prompt}
-Rules:
-- Reply naturally in English (1-3 sentences) to keep dialogue going.
-- ${settings.bilingual ? 'Provide grammar corrections and tips in Portuguese in the feedback field.' : 'Provide brief grammar tips in English in feedback.'}
-- Output ONLY valid JSON: {"reply":"...","feedback":"..."}. If no corrections, feedback can be empty.`;
+      Rules:
+      - Reply naturally in English (1-3 sentences) to keep dialogue going.
+      - ${settings.bilingual ? 'Provide grammar corrections and tips in Portuguese in the feedback field.' : 'Provide brief grammar tips in English in feedback.'}
+      - Output ONLY valid JSON: {"reply":"...","feedback":"..."}. If no corrections, feedback can be empty.`;
       const llmMessages = next.map(m => ({ role: m.role, content: m.content }));
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, llmMessages, system);
       const parsed = parseJSON(txt);
-      const reply = parsed?.reply || txt;
-      const feedback = parsed?.feedback || '';
+      const reply = safeText(parsed?.reply || txt);
+      const feedback = safeText(parsed?.feedback || '');
       const assistantMsg = { role: 'assistant', content: reply, feedback };
       persist([...next, assistantMsg]);
       if (settings.autoPlay) onSpeak(reply);
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  };
+      } catch (e) { setError(e.message); }
+      finally { setLoading(false); }
+      };
 
-  const startListening = () => {
-    if (!SpeechRec) { setError('Speech recognition not supported in this browser.'); return; }
-    try {
+      const startListening = () => {
+      if (!SpeechRec) { setError('Speech recognition not supported in this browser.'); return; }
+      try {
       const rec = new SpeechRec();
       rec.lang = settings.accent;
       rec.interimResults = false;
@@ -581,429 +669,471 @@ Rules:
       recRef.current = rec;
       setListening(true);
       rec.start();
-    } catch (e) { setError(e.message); setListening(false); }
-  };
-  const stopListening = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
+      } catch (e) { setError(e.message); setListening(false); }
+      };
+      const stopListening = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
+      const clearChat = () => persist([]);
 
-  const clearChat = () => persist([]);
-
-  return (
-    <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
+      return (
+      <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="message-circle"/> Writing Practice</h2>
-        <div className="flex items-center gap-2">
-          <select value={scenario} onChange={e=>setScenario(e.target.value)} className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm">
-            {SCENARIOS.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <Button variant="ghost" onClick={clearChat}><Icon name="trash-2" className="w-4 h-4"/></Button>
-        </div>
-      </div>
-      <Card className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto p-4 space-y-3">
-          {messages.length === 0 && <div className="text-center text-slate-500 dark:text-slate-400 py-10">Start the conversation. Write in English!</div>}
-          {messages.map((m, i) => (
-            <div key={i} className={cls('flex', m.role==='user' ? 'justify-end' : 'justify-start')}>
-              <div className={cls('max-w-[80%] rounded-2xl px-4 py-2', m.role==='user' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100')}>
-                <div className="chat-bubble">{m.content}</div>
-                {m.role==='assistant' && (
-                  <div className="flex items-center gap-2 mt-1">
-                    <button onClick={()=>onSpeak(m.content)} className="text-slate-400 hover:text-primary"><Icon name="volume-2" className="w-4 h-4"/></button>
-                  </div>
-                )}
-                {m.role==='assistant' && m.feedback && (
-                  <div className="mt-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-sm text-slate-900 dark:text-slate-100">
-                    <div className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Feedback (PT)</div>
-                    <div className="whitespace-pre-wrap">{m.feedback}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-          {loading && <div className="flex justify-start"><div className="bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2 flex items-center gap-2 text-slate-900 dark:text-slate-100"><Spinner/> thinking...</div></div>}
-          <div ref={bottomRef}/>
-        </div>
-        {error && <div className="px-4 py-1 text-red-600 dark:text-red-400 text-sm">{error}</div>}
-        <div className="border-t border-slate-200 dark:border-slate-700 p-3 flex gap-2">
-          <button onClick={listening ? stopListening : startListening}
-            className={cls('p-2 rounded-lg border', listening ? 'bg-red-600 text-white border-red-600' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800')}>
-            <Icon name="mic" className="w-5 h-5"/>
-          </button>
-          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }}
-            placeholder="Type your message in English..." className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary"/>
-          <Button onClick={()=>send()} disabled={loading || !input.trim()}><Icon name="send" className="w-4 h-4"/></Button>
-        </div>
-      </Card>
+      <h2 className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="message-circle"/> Writing Practice</h2>
+      <div className="flex items-center gap-2">
+      <select value={scenario} onChange={e=>setScenario(e.target.value)} className="px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-sm">
+      {SCENARIOS.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+    </select>
+      <Button variant="ghost" onClick={clearChat}><Icon name="trash-2" className="w-4 h-4"/></Button>
     </div>
-  );
-}
+    </div>
+      <Card className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-auto p-4 space-y-3">
+      {messages.length === 0 && <div className="text-center text-slate-500 dark:text-slate-400 py-10">Start the conversation. Write in English!</div>}
+      {messages.map((m, i) => (
+      <div key={i} className={cls('flex', m.role==='user' ? 'justify-end' : 'justify-start')}>
+      <div className={cls('max-w-[80%] rounded-2xl px-4 py-2', m.role==='user' ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100')}>
+      <div className="chat-bubble">{m.content}</div>
+      {m.role==='assistant' && (
+      <div className="flex items-center gap-2 mt-1">
+      <button onClick={()=>onSpeak(m.content)} className="text-slate-400 hover:text-primary"><Icon name="volume-2" className="w-4 h-4"/></button>
+    </div>
+      )}
+      {m.role==='assistant' && m.feedback && (
+      <div className="mt-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-sm text-slate-900 dark:text-slate-100">
+      <div className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Feedback (PT)</div>
+      <div className="whitespace-pre-wrap">{m.feedback}</div>
+    </div>
+      )}
+    </div>
+    </div>
+      ))}
+      {loading && <div className="flex justify-start"><div className="bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2 flex items-center gap-2 text-slate-900 dark:text-slate-100"><Spinner/> thinking...</div></div>}
+      <div ref={bottomRef}/>
+    </div>
+      {error && <div className="px-4 py-1 text-red-600 dark:text-red-400 text-sm">{error}</div>}
+      <div className="border-t border-slate-200 dark:border-slate-700 p-3 flex gap-2">
+      <button onClick={listening ? stopListening : startListening}
+      className={cls('p-2 rounded-lg border', listening ? 'bg-red-600 text-white border-red-600' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800')}>
+      <Icon name="mic" className="w-5 h-5"/>
+    </button>
+      <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } }}
+      placeholder="Type your message in English..." className="flex-1 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary"/>
+      <Button onClick={()=>send()} disabled={loading || !input.trim()}><Icon name="send" className="w-4 h-4"/></Button>
+    </div>
+    </Card>
+    </div>
+      );
+      }
 
-/* ---------------- Reading ---------------- */
-function ReadingPractice({ settings, onSpeak }) {
-  const [level, setLevel] = useState('A1');
-  const [articleId, setArticleId] = useState(DEFAULT_ARTICLES.find(a=>a.level==='A1').id);
-  const [selectedWord, setSelectedWord] = useState(null);
+      /* ---------------- Reading ---------------- */
+      function ReadingPractice({ settings, onSpeak, onSaveVocab }) {
+      const [level, setLevel] = useState('A1');
+      const [articleId, setArticleId] = useState(DEFAULT_ARTICLES.find(a=>a.level==='A1').id);
+      const [selectedWord, setSelectedWord] = useState(null);
+      const [savedWords, setSavedWords] = useState({});
 
-  const levelArticles = DEFAULT_ARTICLES.filter(a=>a.level===level);
-  const article = DEFAULT_ARTICLES.find(a=>a.id===articleId) || levelArticles[0];
+      const levelArticles = DEFAULT_ARTICLES.filter(a=>a.level===level);
+      const article = DEFAULT_ARTICLES.find(a=>a.id===articleId) || levelArticles[0];
 
-  useEffect(() => {
-    if (!levelArticles.find(a=>a.id===articleId)) setArticleId(levelArticles[0]?.id);
-  }, [level]);
+      useEffect(() => {
+      if (!levelArticles.find(a=>a.id===articleId)) setArticleId(levelArticles[0]?.id);
+      }, [level]);
 
-  const [quiz, setQuiz] = useState(null);
-  const [quizAnswers, setQuizAnswers] = useState({});
-  const [quizLoading, setQuizLoading] = useState(false);
-  const [quizError, setQuizError] = useState('');
+      const handleSave = (word, data) => {
+      if (onSaveVocab) onSaveVocab(word, normalizeVocabData(data));
+      setSavedWords(prev => ({ ...prev, [word]: true }));
+      };
 
-  const genQuiz = async () => {
-    if (!settings.model || !article) { setQuizError('Select model/article.'); return; }
-    setQuizLoading(true); setQuizError(''); setQuiz(null); setQuizAnswers({});
-    try {
+      const [quiz, setQuiz] = useState(null);
+      const [quizAnswers, setQuizAnswers] = useState({});
+      const [quizLoading, setQuizLoading] = useState(false);
+      const [quizError, setQuizError] = useState('');
+
+      const genQuiz = async () => {
+      if (!settings.model || !article) { setQuizError('Select model/article.'); return; }
+      setQuizLoading(true); setQuizError(''); setQuiz(null); setQuizAnswers({});
+      try {
       const prompt = `Based on the following English article, create a reading comprehension quiz.
-Article: "${article.text.replace(/"/g,'\\"')}"
-Output ONLY JSON: {"questions":[{"question":"...","options":["A","B","C","D"],"answerIndex":0,"explanation":"explanation in Portuguese"}]}
-Create 3 multiple-choice questions (4 options each). Explanations in Portuguese.`;
+      Article: "${article.text.replace(/"/g,'\\"')}"
+      Output ONLY JSON: {"questions":[{"question":"...","options":["A","B","C","D"],"answerIndex":0,"explanation":"explanation in Portuguese"}]}
+      Create 3 multiple-choice questions (4 options each). Explanations in Portuguese.`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed?.questions) throw new Error('Could not parse quiz');
       setQuiz(parsed.questions);
-    } catch (e) { setQuizError(e.message); }
-    finally { setQuizLoading(false); }
-  };
+      } catch (e) { setQuizError(e.message); }
+      finally { setQuizLoading(false); }
+      };
 
-  const tokens = (article?.text || '').match(/\w+|[^\w\s]+|\s+/g) || [];
+      const tokens = (article?.text || '').match(/\w+|[^\w\s]+|\s+/g) || [];
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-4">
+      return (
+      <div className="max-w-3xl mx-auto space-y-4">
       <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="book-open"/> Reading Practice</h2>
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-500 dark:text-slate-400">Level:</span>
-          {['A1','A2','B1','B2','C1'].map(l => (
-            <button key={l} onClick={()=>setLevel(l)} className={cls('px-3 py-1 rounded-full text-sm border transition', level===l ? 'bg-primary text-white border-primary' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800')}>{l}</button>
-          ))}
-        </div>
-        <select value={articleId} onChange={e=>setArticleId(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
-          {levelArticles.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}
-        </select>
-      </div>
+      <div className="flex items-center gap-2">
+      <span className="text-sm text-slate-500 dark:text-slate-400">Level:</span>
+      {['A1','A2','B1','B2','C1'].map(l => (
+      <button key={l} onClick={()=>setLevel(l)} className={cls('px-3 py-1 rounded-full text-sm border transition', level===l ? 'bg-primary text-white border-primary' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800')}>{l}</button>
+      ))}
+    </div>
+      <select value={articleId} onChange={e=>setArticleId(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+      {levelArticles.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}
+    </select>
+    </div>
       <Card className="p-5">
-        <div className="text-lg font-semibold mb-3 text-slate-900 dark:text-slate-100">{article?.title}</div>
-        <div className="text-base leading-relaxed text-slate-800 dark:text-slate-100">
-          {tokens.map((tok,i) => {
-            if (/^\w+$/.test(tok)) {
-              return <button key={i} onClick={()=>setSelectedWord(tok)} className="hover:text-primary hover:underline cursor-pointer">{tok}</button>;
-            }
-            return <span key={i}>{tok}</span>;
-          })}
-        </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">Click any word to see translation, definition and examples.</p>
-      </Card>
+      <div className="text-lg font-semibold mb-3 text-slate-900 dark:text-slate-100">{article?.title}</div>
+      <div className="text-base leading-relaxed text-slate-800 dark:text-slate-100">
+      {tokens.map((tok,i) => {
+      if (/^\w+$/.test(tok)) {
+      return <button key={i} onClick={()=>setSelectedWord(tok)} className="hover:text-primary hover:underline cursor-pointer">{tok}</button>;
+      }
+      return <span key={i}>{tok}</span>;
+      })}
+    </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">Click any word to see translation, definition and examples.</p>
+    </Card>
 
       <div className="flex items-center gap-2">
-        <Button onClick={genQuiz} disabled={quizLoading}>{quizLoading ? <Spinner/> : <Icon name="sparkles" className="w-4 h-4"/>} Generate Quiz</Button>
-      </div>
+      <Button onClick={genQuiz} disabled={quizLoading}>{quizLoading ? <Spinner/> : <Icon name="sparkles" className="w-4 h-4"/>} Generate Quiz</Button>
+    </div>
       {quizError && <div className="text-red-600 dark:text-red-400 text-sm">{quizError}</div>}
       {quiz && (
-        <Card className="p-5 space-y-4">
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">Comprehension Quiz</h3>
-          {quiz.map((q, qi) => (
-            <div key={qi} className="space-y-2">
-              <div className="font-medium text-slate-900 dark:text-slate-100">{qi+1}. {q.question}</div>
-              <div className="space-y-1">
-                {q.options.map((opt, oi) => {
-                  const answered = quizAnswers[qi] !== undefined;
-                  const chosen = quizAnswers[qi] === oi;
-                  const correct = q.answerIndex === oi;
-                  let style = 'w-full text-left px-3 py-2 rounded-lg border text-sm transition text-slate-900 dark:text-slate-100 ';
-                  if (answered) {
-                    if (correct) style += 'bg-green-100 dark:bg-green-900/30 border-green-500';
-                    else if (chosen) style += 'bg-red-100 dark:bg-red-900/30 border-red-500';
-                    else style += 'border-slate-300 dark:border-slate-700';
-                  } else style += 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer';
-                  return <button key={oi} disabled={answered} onClick={()=>setQuizAnswers(prev=>({...prev,[qi]:oi}))} className={style}>{String.fromCharCode(65+oi)}. {opt}</button>;
-                })}
-              </div>
-              {quizAnswers[qi] !== undefined && (
-                <div className={cls('text-sm p-2 rounded-lg', quizAnswers[qi]===q.answerIndex ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')}>
-                  {quizAnswers[qi]===q.answerIndex ? 'Correto! ' : 'Incorreto. '}{q.explanation}
-                </div>
-              )}
-            </div>
-          ))}
-        </Card>
+      <Card className="p-5 space-y-4">
+      <h3 className="font-semibold text-slate-900 dark:text-slate-100">Comprehension Quiz</h3>
+      {quiz.map((q, qi) => (
+      <div key={qi} className="space-y-2">
+      <div className="font-medium text-slate-900 dark:text-slate-100">{qi+1}. {safeText(q.question)}</div>
+      <div className="space-y-1">
+      {q.options.map((opt, oi) => {
+      const answered = quizAnswers[qi] !== undefined;
+      const chosen = quizAnswers[qi] === oi;
+      const correct = q.answerIndex === oi;
+      let style = 'w-full text-left px-3 py-2 rounded-lg border text-sm transition text-slate-900 dark:text-slate-100 ';
+      if (answered) {
+      if (correct) style += 'bg-green-100 dark:bg-green-900/30 border-green-500';
+      else if (chosen) style += 'bg-red-100 dark:bg-red-900/30 border-red-500';
+      else style += 'border-slate-300 dark:border-slate-700';
+      } else style += 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer';
+      return <button key={oi} disabled={answered} onClick={()=>setQuizAnswers(prev=>({...prev,[qi]:oi}))} className={style}>{String.fromCharCode(65+oi)}. {safeText(opt)}</button>;
+      })}
+    </div>
+      {quizAnswers[qi] !== undefined && (
+      <div className={cls('text-sm p-2 rounded-lg', quizAnswers[qi]===q.answerIndex ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400')}>
+      {quizAnswers[qi]===q.answerIndex ? 'Correto! ' : 'Incorreto. '}{safeText(q.explanation)}
+    </div>
+      )}
+    </div>
+      ))}
+    </Card>
       )}
 
-      <WordModal word={selectedWord} onClose={()=>setSelectedWord(null)} settings={settings} onSpeak={onSpeak} />
+      <WordModal word={selectedWord} onClose={()=>setSelectedWord(null)} settings={settings} onSpeak={onSpeak} onSaveVocab={handleSave} />
     </div>
-  );
-}
+      );
+      }
 
-/* ---------------- Speaking ---------------- */
-function SpeakingPractice({ settings, onSpeak }) {
-  const [tab, setTab] = useState('voice');
-  const [phrases] = useState([
-    'Hello, how are you today?',
-    'Could you please help me find the station?',
-    'I would like to order the chicken, please.',
-    'Nice to meet you. My name is John.',
-    'What time does the train leave?',
-  ]);
-  const [phraseIdx, setPhraseIdx] = useState(0);
-  const [transcript, setTranscript] = useState('');
-  const recRef = useRef(null);
-  const [listening, setListening] = useState(false);
-  const [feedback, setFeedback] = useState('');
+      /* ---------------- Speaking ---------------- */
+      function SpeakingPractice({ settings, onSpeak }) {
+      const [tab, setTab] = useState('voice');
+      const [phrases] = useState([
+      'Hello, how are you today?',
+      'Could you please help me find the station?',
+      'I would like to order the chicken, please.',
+      'Nice to meet you. My name is John.',
+      'What time does the train leave?',
+      ]);
+      const [phraseIdx, setPhraseIdx] = useState(0);
+      const [transcript, setTranscript] = useState('');
+      const recRef = useRef(null);
+      const [listening, setListening] = useState(false);
+      const [feedback, setFeedback] = useState('');
 
-  const playPhrase = () => onSpeak(phrases[phraseIdx]);
+      const playPhrase = () => onSpeak(phrases[phraseIdx]);
 
-  const startRec = () => {
-    if (!SpeechRec) { setFeedback('Speech recognition not supported.'); return; }
-    const rec = new SpeechRec();
-    rec.lang = settings.accent;
-    rec.onresult = (e) => setTranscript(e.results[0][0].transcript);
-    rec.onend = () => setListening(false);
-    rec.onerror = (e) => { setFeedback('Mic error: '+e.error); setListening(false); };
-    recRef.current = rec;
-    setListening(true); setTranscript('');
-    rec.start();
-  };
-  const stopRec = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
+      const startRec = () => {
+      if (!SpeechRec) { setFeedback('Speech recognition not supported.'); return; }
+      const rec = new SpeechRec();
+      rec.lang = settings.accent;
+      rec.onresult = (e) => setTranscript(e.results[0][0].transcript);
+      rec.onend = () => setListening(false);
+      rec.onerror = (e) => { setFeedback('Mic error: '+e.error); setListening(false); };
+      recRef.current = rec;
+      setListening(true); setTranscript('');
+      rec.start();
+      };
+      const stopRec = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
 
-  const compare = () => {
-    if (!settings.model) { setFeedback('Select a model in Settings.'); return; }
-    (async () => {
+      const compare = () => {
+      if (!settings.model) { setFeedback('Select a model in Settings.'); return; }
+      (async () => {
       try {
-        setFeedback('Analyzing...');
-        const prompt = `The target phrase is: "${phrases[phraseIdx]}"
-The user said: "${transcript}"
-Give brief pronunciation/accuracy feedback in Portuguese. Output plain text (2-4 sentences).`;
-        const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'You are a friendly speaking coach. Reply in Portuguese.');
-        setFeedback(txt);
+      setFeedback('Analyzing...');
+      const prompt = `The target phrase is: "${phrases[phraseIdx]}"
+      The user said: "${transcript}"
+      Give brief pronunciation/accuracy feedback in Portuguese. Output plain text (2-4 sentences).`;
+      const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'You are a friendly speaking coach. Reply in Portuguese.');
+      setFeedback(txt);
       } catch (e) { setFeedback('Error: '+e.message); }
-    })();
-  };
+      })();
+      };
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-4">
+      return (
+      <div className="max-w-3xl mx-auto space-y-4">
       <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="headphones"/> Speaking & Listening</h2>
       <div className="flex gap-2">
-        <button onClick={()=>setTab('voice')} className={cls('px-4 py-2 rounded-lg font-medium transition', tab==='voice'?'bg-primary text-white shadow-sm':'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-700')}>Voice Chat</button>
-        <button onClick={()=>setTab('repeat')} className={cls('px-4 py-2 rounded-lg font-medium transition', tab==='repeat'?'bg-primary text-white shadow-sm':'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-700')}>Listen & Repeat</button>
-      </div>
+      <button onClick={()=>setTab('voice')} className={cls('px-4 py-2 rounded-lg font-medium transition', tab==='voice'?'bg-primary text-white shadow-sm':'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-700')}>Voice Chat</button>
+      <button onClick={()=>setTab('repeat')} className={cls('px-4 py-2 rounded-lg font-medium transition', tab==='repeat'?'bg-primary text-white shadow-sm':'bg-slate-200 text-slate-900 dark:bg-slate-800 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-700')}>Listen & Repeat</button>
+    </div>
       {tab === 'voice' && <ChatPanel settings={settings} onSpeak={onSpeak} />}
       {tab === 'repeat' && (
-        <Card className="p-5 space-y-4">
-          <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">{phrases[phraseIdx]}</div>
-          <div className="flex gap-2">
-            <Button onClick={playPhrase}><Icon name="play" className="w-4 h-4"/> Play</Button>
-            <Button variant="secondary" onClick={()=>setPhraseIdx((phraseIdx+1)%phrases.length)}>Next</Button>
-          </div>
-          <div>
-            <Button onClick={listening ? stopRec : startRec} variant={listening ? 'danger' : 'primary'} className="min-w-[190px] justify-center">
-              <Icon name="mic" className="w-4 h-4"/> {listening ? 'Stop recording' : 'Record your voice'}
-            </Button>
-          </div>
-          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm min-h-[48px] text-slate-900 dark:text-slate-100">
-            <span className="text-slate-500 dark:text-slate-400">Transcript: </span>{transcript || '—'}
-          </div>
-          <Button onClick={compare} disabled={!transcript}>Get AI Feedback</Button>
-          {feedback && <div className="text-sm p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-slate-900 dark:text-slate-100 whitespace-pre-wrap">{feedback}</div>}
-        </Card>
+      <Card className="p-5 space-y-4">
+      <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">{phrases[phraseIdx]}</div>
+      <div className="flex gap-2">
+      <Button onClick={playPhrase}><Icon name="play" className="w-4 h-4"/> Play</Button>
+      <Button variant="secondary" onClick={()=>setPhraseIdx((phraseIdx+1)%phrases.length)}>Next</Button>
+    </div>
+      <div>
+      <Button onClick={listening ? stopRec : startRec} variant={listening ? 'danger' : 'primary'} className="min-w-[190px] justify-center">
+      <Icon name="mic" className="w-4 h-4"/> {listening ? 'Stop recording' : 'Record your voice'}
+    </Button>
+    </div>
+      <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm min-h-[48px] text-slate-900 dark:text-slate-100">
+      <span className="text-slate-500 dark:text-slate-400">Transcript: </span>{transcript || '—'}
+    </div>
+      <Button onClick={compare} disabled={!transcript}>Get AI Feedback</Button>
+      {feedback && <div className="text-sm p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-slate-900 dark:text-slate-100 whitespace-pre-wrap">{feedback}</div>}
+    </Card>
       )}
     </div>
-  );
-}
+      );
+      }
 
-/* ---------------- Vocabulary ---------------- */
-function Vocabulary({ data, setData }) {
-  const [search, setSearch] = useState('');
-  const filtered = data.filter(v => v.word.toLowerCase().includes(search.toLowerCase()));
-  const remove = (w) => setData(prev => prev.filter(v => v.word !== w));
-  return (
-    <div className="max-w-3xl mx-auto space-y-4">
+      /* ---------------- Vocabulary (full manager) ---------------- */
+      function Vocabulary({ data, setData, onSpeak }) {
+      const [search, setSearch] = useState('');
+      const [openId, setOpenId] = useState(null);
+      const filtered = (data || []).filter(v => (v.word || '').toLowerCase().includes(search.toLowerCase()));
+
+      const remove = (w) => {
+      setData(prev => (prev || []).filter(v => v.word !== w));
+      if (openId === w) setOpenId(null);
+      };
+
+      return (
+      <div className="max-w-3xl mx-auto space-y-4">
       <h2 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-slate-100"><Icon name="bookmark"/> My Vocabulary</h2>
       <Input value={search} onChange={setSearch} placeholder="Search saved words..."/>
-      {filtered.length === 0 && <div className="text-center text-slate-500 dark:text-slate-400 py-10">No saved words yet.</div>}
+      {filtered.length === 0 && <div className="text-center text-slate-500 dark:text-slate-400 py-10">No saved words yet. Save words from Word Lookup or Reading.</div>}
       <div className="grid sm:grid-cols-2 gap-3">
-        {filtered.map(v => (
-          <Card key={v.word} className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="font-bold capitalize text-slate-900 dark:text-slate-100">{v.word}</div>
-              <button onClick={()=>remove(v.word)} className="text-slate-400 hover:text-red-500"><Icon name="trash-2" className="w-4 h-4"/></button>
-            </div>
-            <div className="text-accent text-sm">{v.data?.translation}</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{v.data?.definition}</div>
-          </Card>
-        ))}
-      </div>
+      {filtered.map(v => {
+      const isOpen = openId === v.word;
+      const d = normalizeVocabData(v.data || {});
+      return (
+      <Card key={v.word} className="p-4 space-y-2">
+      <div className="flex items-center justify-between">
+      <div className="font-bold capitalize text-slate-900 dark:text-slate-100">{v.word}</div>
+      <div className="flex items-center gap-2">
+      <button onClick={() => onSpeak(v.word)} className="text-slate-400 hover:text-primary" title="Listen pronunciation"><Icon name="volume-2" className="w-4 h-4"/></button>
+      <button onClick={() => setOpenId(isOpen ? null : v.word)} className="text-slate-400 hover:text-primary" title="View details"><Icon name={isOpen ? 'chevron-down' : 'chevron-right'} className="w-4 h-4"/></button>
+      <button onClick={() => remove(v.word)} className="text-slate-400 hover:text-red-500" title="Delete"><Icon name="trash-2" className="w-4 h-4"/></button>
     </div>
-  );
-}
+    </div>
+      {d?.translation && <div className="text-accent text-sm font-medium">{safeText(d.translation)}</div>}
+      {isOpen && (
+      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100">
+      {d?.definition && <div><span className="text-xs uppercase text-slate-500 dark:text-slate-400">Definition: </span>{safeText(d.definition)}</div>}
+      {Array.isArray(d?.examples) && d.examples.length > 0 && (
+      <div>
+      <div className="text-xs uppercase text-slate-500 dark:text-slate-400 mb-1">Examples</div>
+      <ul className="space-y-2">
+      {d.examples.map((ex, i) => (
+      <li key={i} className="flex items-start gap-2 bg-slate-50 dark:bg-slate-800 rounded-lg p-2">
+      <span className="text-primary">•</span>
+      <span className="flex-1">{safeText(ex)}</span>
+      <button onClick={() => onSpeak(ex)} className="text-slate-400 hover:text-primary"><Icon name="volume-2" className="w-3 h-3"/></button>
+    </li>
+      ))}
+    </ul>
+    </div>
+      )}
+    </div>
+      )}
+    </Card>
+      );
+      })}
+    </div>
+    </div>
+      );
+      }
 
-/* ---------------- Floating ---------------- */
-function FloatingToolbar({ onOpen }) {
-  return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2">
+      /* ---------------- Floating ---------------- */
+      function FloatingToolbar({ onOpen }) {
+      return (
+      <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2">
       <button onClick={()=>onOpen('translator')} className="w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:scale-105 transition" title="Translator">
-        <Icon name="globe" className="w-5 h-5"/>
-      </button>
+      <Icon name="globe" className="w-5 h-5"/>
+    </button>
       <button onClick={()=>onOpen('lookup')} className="w-12 h-12 rounded-full bg-accent text-slate-900 shadow-lg flex items-center justify-center hover:scale-105 transition font-semibold" title="Word Lookup">
-        <Icon name="search" className="w-5 h-5"/>
-      </button>
+      <Icon name="search" className="w-5 h-5"/>
+    </button>
     </div>
-  );
-}
+      );
+      }
 
-function FloatingModal({ kind, onClose, settings }) {
-  if (!kind) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      function FloatingModal({ kind, onClose, settings, onSaveVocab }) {
+      if (!kind) return null;
+      return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
       <div className="w-full max-w-lg" onClick={e=>e.stopPropagation()}>
-        {kind === 'translator' ? <TranslatorPanel settings={settings}/> : <LookupPanel settings={settings}/>}
-        <button onClick={onClose} className="mt-2 text-white/90 hover:text-white text-sm mx-auto block">Close</button>
-      </div>
+      {kind === 'translator' ? <TranslatorPanel settings={settings}/> : <LookupPanel settings={settings} onSaveVocab={onSaveVocab}/>}
+      <button onClick={onClose} className="mt-2 text-white/90 hover:text-white text-sm mx-auto block">Close</button>
     </div>
-  );
-}
+    </div>
+      );
+      }
 
-/* ---------------- Dashboard ---------------- */
-function Dashboard({ onNavigate }) {
-  const cards = [
-    { id:'writing', title:'Writing Practice', desc:'Chat with AI, get grammar feedback.', icon:'message-circle' },
-    { id:'reading', title:'Reading Practice', desc:'Articles, word lookup, quizzes.', icon:'book-open' },
-    { id:'speaking', title:'Speaking & Listening', desc:'Voice input and TTS practice.', icon:'headphones' },
-    { id:'translator', title:'Translator', desc:'Portuguese to English.', icon:'globe' },
-    { id:'lookup', title:'Word Lookup', desc:'Definitions and examples.', icon:'search' },
-    { id:'vocab', title:'Vocabulary', desc:'Your saved words.', icon:'bookmark' },
-  ];
-  return (
-    <div className="max-w-5xl mx-auto space-y-6">
+      /* ---------------- Dashboard ---------------- */
+      function Dashboard({ onNavigate }) {
+      const cards = [
+      { id:'writing', title:'Writing Practice', desc:'Chat with AI, get grammar feedback.', icon:'message-circle' },
+      { id:'reading', title:'Reading Practice', desc:'Articles, word lookup, quizzes.', icon:'book-open' },
+      { id:'speaking', title:'Speaking & Listening', desc:'Voice input and TTS practice.', icon:'headphones' },
+      { id:'translator', title:'Translator', desc:'Portuguese ↔ English.', icon:'globe' },
+      { id:'lookup', title:'Word Lookup', desc:'Definitions and examples.', icon:'search' },
+      { id:'vocab', title:'Vocabulary', desc:'Your saved words.', icon:'bookmark' },
+      ];
+      return (
+      <div className="max-w-5xl mx-auto space-y-6">
       <div className="text-center py-6">
-        <h1 className="text-4xl font-bold"><span className="text-primary dark:text-indigo-400">LinguaIA</span> Coach</h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-2">Practice English with your local Ollama model.</p>
-      </div>
+      <h1 className="text-4xl font-bold"><span className="text-primary dark:text-indigo-400">LinguaIA</span> Coach</h1>
+      <p className="text-slate-500 dark:text-slate-400 mt-2">Practice English with your local Ollama model.</p>
+    </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {cards.map(c => (
-          <button key={c.id} onClick={()=>onNavigate(c.id)} className="text-left">
-            <Card className="p-5 hover:shadow-lg hover:-translate-y-0.5 transition cursor-pointer">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-primary flex items-center justify-center"><Icon name={c.icon}/></div>
-                <div className="font-semibold text-slate-900 dark:text-slate-100">{c.title}</div>
-              </div>
-              <div className="text-sm text-slate-500 dark:text-slate-400">{c.desc}</div>
-            </Card>
-          </button>
-        ))}
-      </div>
+      {cards.map(c => (
+      <button key={c.id} onClick={()=>onNavigate(c.id)} className="text-left">
+      <Card className="p-5 hover:shadow-lg hover:-translate-y-0.5 transition cursor-pointer">
+      <div className="flex items-center gap-3 mb-2">
+      <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 text-primary flex items-center justify-center"><Icon name={c.icon}/></div>
+      <div className="font-semibold text-slate-900 dark:text-slate-100">{c.title}</div>
     </div>
-  );
-}
+      <div className="text-sm text-slate-500 dark:text-slate-400">{c.desc}</div>
+    </Card>
+    </button>
+      ))}
+    </div>
+    </div>
+      );
+      }
 
-/* ---------------- App ---------------- */
-function App() {
-  const [rawSettings, setRawSettings] = useLocalStorage('linguaai_settings', DEFAULT_SETTINGS);
-  const settings = normalizeSettings(rawSettings);
-  const setSettings = (updater) => setRawSettings(prev => {
-    const prevNorm = normalizeSettings(prev);
-    const next = typeof updater === 'function' ? updater(prevNorm) : updater;
-    return normalizeSettings(next);
-  });
+      /* ---------------- App ---------------- */
+      function App() {
+      const [rawSettings, setRawSettings] = useLocalStorage('linguaai_settings', DEFAULT_SETTINGS);
+      const settings = normalizeSettings(rawSettings);
+      const setSettings = (updater) => setRawSettings(prev => {
+      const prevNorm = normalizeSettings(prev);
+      const next = typeof updater === 'function' ? updater(prevNorm) : updater;
+      return normalizeSettings(next);
+      });
 
-  const [vocab, setVocab] = useLocalStorage('linguaai_vocab', []);
-  const [route, setRoute] = useState('dashboard');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [floating, setFloating] = useState(null);
+      const [vocab, setVocab] = useLocalStorage('linguaai_vocab', []);
+      const [route, setRoute] = useState('dashboard');
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [floating, setFloating] = useState(null);
 
-  const theme = settings.theme || 'dark';
+      const theme = settings.theme || 'dark';
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
+      useEffect(() => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      }, [theme]);
 
-  useEffect(() => {
-    if (!rawSettings?.theme) {
+      useEffect(() => {
+      if (!rawSettings?.theme) {
       setRawSettings(s => ({ ...normalizeSettings(s), theme: 'dark' }));
-    }
-  }, []);
+      }
+      }, []);
 
-  const tts = useTTS(settings);
-  const speak = tts.speak;
+      const tts = useTTS(settings);
+      const speak = tts.speak;
 
-  const saveVocab = (word, data) => {
-    if (!vocab.find(v=>v.word===word.toLowerCase())) {
-      setVocab(prev => [...prev, { word: word.toLowerCase(), data, savedAt: Date.now() }]);
-    }
-  };
+      const saveVocab = (word, data) => {
+      const clean = (word || '').toLowerCase().trim();
+      if (!clean) return;
+      setVocab(prev => {
+      const list = Array.isArray(prev) ? prev : [];
+      const exists = list.some(v => v.word === clean);
+      if (exists) return list;
+      return [...list, { word: clean, data: normalizeVocabData(data) || data, savedAt: Date.now() }];
+      });
+      };
 
-  const navigate = (r) => setRoute(r);
+      const navigate = (r) => setRoute(r);
 
-  const sidebarItems = [
-    { id:'dashboard', label:'Dashboard', icon:'home' },
-    { id:'writing', label:'Writing', icon:'message-circle' },
-    { id:'reading', label:'Reading', icon:'book-open' },
-    { id:'speaking', label:'Speaking', icon:'headphones' },
-    { id:'translator', label:'Translator', icon:'globe' },
-    { id:'lookup', label:'Word Lookup', icon:'search' },
-    { id:'vocab', label:'Vocabulary', icon:'bookmark' },
-    { id:'settings', label:'Settings', icon:'settings' },
-  ];
+      const sidebarItems = [
+      { id:'dashboard', label:'Dashboard', icon:'home' },
+      { id:'writing', label:'Writing', icon:'message-circle' },
+      { id:'reading', label:'Reading', icon:'book-open' },
+      { id:'speaking', label:'Speaking', icon:'headphones' },
+      { id:'translator', label:'Translator', icon:'globe' },
+      { id:'lookup', label:'Word Lookup', icon:'search' },
+      { id:'vocab', label:'Vocabulary', icon:'bookmark' },
+      { id:'settings', label:'Settings', icon:'settings' },
+      ];
 
-  const rootClass = theme === 'dark' ? 'dark' : '';
+      const rootClass = theme === 'dark' ? 'dark' : '';
 
-  return (
-    <div className={rootClass}>
+      return (
+      <div className={rootClass}>
       <div className="min-h-screen flex">
-        <aside className={cls('fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transform transition-transform', sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16')}>
-          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-            {sidebarOpen && <div className="font-bold text-lg text-primary">LinguaIA Coach</div>}
-            <button onClick={()=>setSidebarOpen(o=>!o)} className="p-1 rounded text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800">
-              <Icon name={sidebarOpen?'chevron-left':'chevron-right'}/>
-            </button>
-          </div>
-          <nav className="p-2 space-y-1">
-            {sidebarItems.map(it => (
-              <button key={it.id} onClick={()=>setRoute(it.id)}
-                className={cls('w-full flex items-center gap-3 px-3 py-2 rounded-lg transition', route===it.id ? 'bg-primary text-white shadow-sm' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800')}>
-                <Icon name={it.icon} className="w-5 h-5 flex-shrink-0"/>
-                {sidebarOpen && <span className="text-sm font-medium">{it.label}</span>}
-              </button>
-            ))}
-          </nav>
-          <div className="p-3 border-t border-slate-200 dark:border-slate-700 mt-auto">
-            <button onClick={()=>setSettings(s=>({...s,theme:s.theme==='dark'?'light':'dark'}))} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800">
-              <Icon name={theme==='dark'?'sun':'moon'} className="w-5 h-5"/>
-              {sidebarOpen && <span className="text-sm font-medium">{theme==='dark'?'Light mode':'Dark mode'}</span>}
-            </button>
-          </div>
-        </aside>
-        {sidebarOpen && <div className="lg:hidden fixed inset-0 bg-black/40 z-20" onClick={()=>setSidebarOpen(false)}/>}
-
-        <div className="lg:hidden fixed top-0 left-0 right-0 z-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-2 flex items-center justify-between">
-          <button onClick={()=>setSidebarOpen(true)} className="p-1 text-slate-700 dark:text-slate-200"><Icon name="menu"/></button>
-          <div className="font-bold text-primary">LinguaIA Coach</div>
-          <button onClick={()=>setSettings(s=>({...s,theme:s.theme==='dark'?'light':'dark'}))} className="p-1 text-slate-700 dark:text-slate-200"><Icon name={theme==='dark'?'sun':'moon'}/></button>
-        </div>
-
-        <main className="flex-1 min-w-0 p-4 lg:p-6 pt-14 lg:pt-6 overflow-auto">
-          {route === 'dashboard' && <Dashboard onNavigate={navigate}/>}
-          {route === 'settings' && <SettingsPanel settings={settings} setSettings={setSettings}/>}
-          {route === 'writing' && <ChatPanel settings={settings} onSpeak={speak}/>}
-          {route === 'reading' && <ReadingPractice settings={settings} onSpeak={speak}/>}
-          {route === 'speaking' && <SpeakingPractice settings={settings} onSpeak={speak}/>}
-          {route === 'translator' && <TranslatorPanel settings={settings}/>}
-          {route === 'lookup' && <LookupPanel settings={settings}/>}
-          {route === 'vocab' && <Vocabulary data={vocab} setData={setVocab}/>}
-        </main>
-
-        <FloatingToolbar onOpen={setFloating}/>
-        <FloatingModal kind={floating} onClose={()=>setFloating(null)} settings={settings}/>
-      </div>
+      <aside className={cls('fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transform transition-transform', sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-16')}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+      {sidebarOpen && <div className="font-bold text-lg text-primary">LinguaIA Coach</div>}
+      <button onClick={()=>setSidebarOpen(o=>!o)} className="p-1 rounded text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800">
+      <Icon name={sidebarOpen?'chevron-left':'chevron-right'}/>
+    </button>
     </div>
-  );
-}
+      <nav className="p-2 space-y-1">
+      {sidebarItems.map(it => (
+      <button key={it.id} onClick={()=>setRoute(it.id)}
+      className={cls('w-full flex items-center gap-3 px-3 py-2 rounded-lg transition', route===it.id ? 'bg-primary text-white shadow-sm' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800')}>
+      <Icon name={it.icon} className="w-5 h-5 flex-shrink-0"/>
+      {sidebarOpen && <span className="text-sm font-medium">{it.label}</span>}
+    </button>
+      ))}
+    </nav>
+      <div className="p-3 border-t border-slate-200 dark:border-slate-700 mt-auto">
+      <button onClick={()=>setSettings(s=>({...s,theme:s.theme==='dark'?'light':'dark'}))} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800">
+      <Icon name={theme==='dark'?'sun':'moon'} className="w-5 h-5"/>
+      {sidebarOpen && <span className="text-sm font-medium">{theme==='dark'?'Light mode':'Dark mode'}</span>}
+    </button>
+    </div>
+    </aside>
+      {sidebarOpen && <div className="lg:hidden fixed inset-0 bg-black/40 z-20" onClick={()=>setSidebarOpen(false)}/>}
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-  </script>
-</body>
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-2 flex items-center justify-between">
+      <button onClick={()=>setSidebarOpen(true)} className="p-1 text-slate-700 dark:text-slate-200"><Icon name="menu"/></button>
+      <div className="font-bold text-primary">LinguaIA Coach</div>
+      <button onClick={()=>setSettings(s=>({...s,theme:s.theme==='dark'?'light':'dark'}))} className="p-1 text-slate-700 dark:text-slate-200"><Icon name={theme==='dark'?'sun':'moon'}/></button>
+    </div>
+
+      <main className="flex-1 min-w-0 p-4 lg:p-6 pt-14 lg:pt-6 overflow-auto">
+      {route === 'dashboard' && <Dashboard onNavigate={navigate}/>}
+      {route === 'settings' && <SettingsPanel settings={settings} setSettings={setSettings}/>}
+      {route === 'writing' && <ChatPanel settings={settings} onSpeak={speak}/>}
+      {route === 'reading' && <ReadingPractice settings={settings} onSpeak={speak} onSaveVocab={saveVocab}/>}
+      {route === 'speaking' && <SpeakingPractice settings={settings} onSpeak={speak}/>}
+      {route === 'translator' && <TranslatorPanel settings={settings}/>}
+      {route === 'lookup' && <LookupPanel settings={settings} onSaveVocab={saveVocab}/>}
+      {route === 'vocab' && <Vocabulary data={vocab} setData={setVocab} onSpeak={speak}/>}
+    </main>
+
+      <FloatingToolbar onOpen={setFloating}/>
+      <FloatingModal kind={floating} onClose={()=>setFloating(null)} settings={settings} onSaveVocab={saveVocab}/>
+    </div>
+    </div>
+      );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+    </script>
+  </body>
 </html>
