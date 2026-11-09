@@ -148,14 +148,14 @@
       return (data.models || []).map(m => m.name);
       }
 
-      async function ollamaChat(baseUrl, apiKey, model, messages, systemPrompt) {
+      async function ollamaChat(baseUrl, apiKey, model, messages, systemPrompt, temperature = 0.2) {
       const base = baseUrl.replace(/\/$/, '');
       const msgs = systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages;
       try {
       const res = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
-      body: JSON.stringify({ model, messages: msgs, stream: false })
+      body: JSON.stringify({ model, messages: msgs, stream: false, options: {temperature: temperature} })
       });
       if (res.ok) {
       const data = await res.json();
@@ -273,10 +273,29 @@
       try {
       const clean = word.toLowerCase().replace(/[^a-z'-]/g,'').trim();
       if (!clean) { setLoading(false); return; }
-      const prompt = `You are an English vocabulary coach. For the word "${clean}", output ONLY JSON with keys:
-      - translation: Portuguese translation (string)
-      - definition: simple explanation in English and Portuguese (string)
-      - examples: array of 3 real-world example sentences in English`;
+      const prompt = `You are an expert English vocabulary coach and bilingual lexicographer.
+
+      TASK:
+      Analyze the English word or phrase "${clean}".
+
+      RULES:
+      1. "translation": Provide the natural Brazilian Portuguese translation (string).
+      2. "definition": Provide a clear, simple explanation in English, followed by its translation in Portuguese in parentheses (string).
+      3. "examples": Provide an array of EXACTLY 3 practical real-world example sentences in English. Each sentence should ideally include its natural Portuguese translation in parentheses right after.
+
+      OUTPUT FORMAT:
+      Output strictly raw valid JSON. Do not include markdown code blocks (such as \`\`\`json).
+
+      JSON Structure:
+      {
+        "translation": "...",
+        "definition": "... (Tradução em português)",
+        "examples": [
+          "Example sentence 1 in English. (Tradução 1)",
+          "Example sentence 2 in English. (Tradução 2)",
+          "Example sentence 3 in English. (Tradução 3)"
+        ]
+      }`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
@@ -477,9 +496,27 @@
       const ptToEn = direction === 'pt-en';
       const sourceLang = ptToEn ? 'Portuguese (PT-BR)' : 'English';
       const targetLang = ptToEn ? 'English' : 'Portuguese (PT-BR)';
-      const prompt = `You are an expert translator. Translate the following ${sourceLang} text into natural ${targetLang}. Output ONLY JSON:
-      { "translation": "...", "notes": ["usage/context note written in Portuguese (PT-BR)", "..."] }
-      Text: "${input.replace(/"/g,'\\"')}"`;
+      const prompt = `You are an expert bilingual lexicographer and translator specialized in English and Brazilian Portuguese.
+
+      Task: Translate the text from ${sourceLang} to ${targetLang}.
+
+      CRITICAL TRANSLATION RULES:
+      1. NEVER perform literal, word-for-word translation for idioms, expressions, phrasal verbs, or slang (e.g., "cry wolf" -> "dar alarme falso", "piece of cake" -> "mamão com açúcar"). Always use the most natural, culturally equivalent phrase in ${targetLang}.
+      2. If the input is a single word or phrase with multiple common meanings, provide the primary natural translation first, followed by any common alternative in parentheses.
+
+      Return your response strictly in valid JSON format with this structure:
+      {
+        "translation": "Natural equivalent translation",
+        "notes": [
+          "Explanation of context, origin, or nuance written in Portuguese (PT-BR)",
+          "Exemplo prático: \"[Sentence in source language]\" ([Translation in target language])"
+        ]
+      }
+
+      Text to translate:
+      """
+      ${input}
+      """`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
@@ -546,10 +583,23 @@
       setLoading(true); setError(''); setLookupResult(null); setSaved(false);
       try {
       const clean = target.toLowerCase();
-      const prompt = `You are an English vocabulary coach. For the word "${clean}", output ONLY JSON with keys:
-      - translation: Portuguese translation (string)
-      - definition: simple explanation in English and Portuguese (string)
-      - examples: array of 3 real-world example sentences in English`;
+      const prompt = `You are an expert English-Portuguese bilingual lexicographer and vocabulary coach.
+
+      Task: Analyze the English word or phrase "${clean}".
+
+      Provide a natural, accurate dictionary breakdown for a learner. Follow these rules:
+      1. "translation": Give the most common, natural Brazilian Portuguese translation (or top 2 separated by slashes).
+      2. "definition": Write a clear, simple definition in English, followed by its Portuguese translation in parentheses.
+      3. "examples": Provide an array of EXACTLY 3 distinct, practical real-world example sentences in English. Each sentence MUST include its natural Portuguese translation in parentheses right after it.
+
+      Output strictly raw valid JSON. Do not include markdown code block formatting (like \`\`\`json).
+
+      JSON Structure:
+      {
+        "translation": "string",
+        "definition": "string",
+        "examples": ["English sentence (Tradução em português)", "...", "..."]
+      }`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
       const parsed = parseJSON(txt);
       if (!parsed) throw new Error('Could not parse response');
@@ -640,13 +690,28 @@
       setLoading(true);
       try {
       const sc = SCENARIOS.find(s=>s.id===scenario) || SCENARIOS[2];
-      const system = `You are an English conversation partner. Scenario: ${sc.name} - ${sc.prompt}
-      Rules:
-      - Reply naturally in English (1-3 sentences) to keep dialogue going.
-      - ${settings.bilingual ? 'Provide grammar corrections and tips in Portuguese in the feedback field.' : 'Provide brief grammar tips in English in feedback.'}
-      - Output ONLY valid JSON: {"reply":"...","feedback":"..."}. If no corrections, feedback can be empty.`;
+      const system = `You are a friendly, encouraging English conversation partner.
+
+      ROLE & SCENARIO:
+      - Scenario: ${sc.name}
+      - Scenario Details: ${sc.prompt}
+
+      RULES FOR YOUR RESPONSE:
+      1. "reply": Respond naturally in English (1 to 3 short sentences max) to maintain a fluid, engaging dialogue. Ask an open-ended question to keep the conversation going.
+      2. "feedback": Analyze the user's latest input for grammar, spelling, punctuation, or natural phrasing:
+         ${settings.bilingual
+           ? '- If there are errors or awkward phrasing, explain them clearly in PORTUGUESE (PT-BR). Show the correct/natural version and briefly explain why.\n   - If the user\'s sentence is correct, write a short compliment in PORTUGUESE (PT-BR) and suggest 1 alternative, more natural or idiomatic way to say it.'
+           : '- If there are errors, explain them briefly in ENGLISH and show the corrected sentence.\n   - If correct, leave this field empty or provide a quick compliment.'}
+
+      OUTPUT FORMAT:
+      Return strictly raw valid JSON without markdown formatting (do not use \`\`\`json).
+      Structure:
+      {
+        "reply": "English reply text here...",
+        "feedback": "Grammar feedback or tip here..."
+      }`;
       const llmMessages = next.map(m => ({ role: m.role, content: m.content }));
-      const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, llmMessages, system);
+      const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, llmMessages, system, 0.7);
       const parsed = parseJSON(txt);
       const reply = safeText(parsed?.reply || txt);
       const feedback = safeText(parsed?.feedback || '');
@@ -751,12 +816,39 @@
       const genQuiz = async () => {
       if (!settings.model || !article) { setQuizError('Select model/article.'); return; }
       setQuizLoading(true); setQuizError(''); setQuiz(null); setQuizAnswers({});
+        console.log(article);
       try {
-      const prompt = `Based on the following English article, create a reading comprehension quiz.
-      Article: "${article.text.replace(/"/g,'\\"')}"
-      Output ONLY JSON: {"questions":[{"question":"...","options":["A","B","C","D"],"answerIndex":0,"explanation":"explanation in Portuguese"}]}
-      Create 3 multiple-choice questions (4 options each). Explanations in Portuguese.`;
-      const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.');
+        const prompt = `You are an expert English language teacher creating a reading comprehension assessment.
+
+        TASK:
+        Create a 3-question multiple-choice quiz based on the English article provided below.
+
+        ARTICLE CONTENT:
+        """
+        ${article.text}
+        """
+
+        RULES FOR QUIZ GENERATION:
+        1. "question": Write clear, well-phrased comprehension questions in ENGLISH testing main ideas, key details, or vocabulary context.
+        2. "options": Provide EXACTLY 4 plausible options (strings in English). Avoid absurd distractors—make them challenge the reader's understanding.
+        3. "answerIndex": The 0-based index (0, 1, 2, or 3) of the single correct option.
+        4. "explanation": Write a detailed, helpful pedagogical explanation in PORTUGUESE (PT-BR). Explain WHY the answer is correct and briefly reference the part of the article that supports it.
+
+        OUTPUT FORMAT:
+        Return strictly raw valid JSON. Do not include markdown code blocks (such as \`\`\`json).
+
+        JSON Structure:
+        {
+          "questions": [
+            {
+              "question": "English question text...",
+              "options": ["Option A", "Option B", "Option C", "Option D"],
+              "answerIndex": 0,
+              "explanation": "Explicação em português detalhando o motivo da resposta estar certa com base no texto."
+            }
+          ]
+        }`;
+      const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'Respond ONLY with valid JSON.', 0.3);
       const parsed = parseJSON(txt);
       if (!parsed?.questions) throw new Error('Could not parse quiz');
       setQuiz(parsed.questions);
@@ -836,11 +928,65 @@
       function SpeakingPractice({ settings, onSpeak }) {
       const [tab, setTab] = useState('voice');
       const [phrases] = useState([
-      'Hello, how are you today?',
-      'Could you please help me find the station?',
-      'I would like to order the chicken, please.',
-      'Nice to meet you. My name is John.',
-      'What time does the train leave?',
+        // ✈️ Viagem, Transporte e Direções
+        'Hello, how are you today?',
+        'Could you please help me find the station?',
+        'What time does the train leave?',
+        'Excuse me, how do I get to the nearest airport?',
+        'I need to check in for my flight, please.',
+        'Is this seat taken?',
+        'Could you show me on the map?',
+        'How much is a round-trip ticket to downtown?',
+        'Where is the gate for flight 402?',
+        'Can you recommend a good hotel nearby?',
+
+        // 🍽️ Restaurantes, Bares e Compras
+        'I would like to order the chicken, please.',
+        'Could we have the bill, please?',
+        'Do you have any vegetarian options?',
+        'I am just browsing, thank you.',
+        'Do you accept credit cards or only cash?',
+        'Can I try this on in a size medium?',
+        'Could I get a glass of water, please?',
+        'Is service included in the check?',
+        'What is the daily special today?',
+        'This food is delicious, thank you!',
+
+        // 💬 Socialização, Trabalho e Conversas Diárias
+        'Nice to meet you. My name is John.',
+        'What do you do in your free time?',
+        'How has your week been so far?',
+        'I am really looking forward to the weekend.',
+        'Could you speak a little bit slower, please?',
+        'I didn\'t quite catch that. Could you repeat it?',
+        'What do you mean by that?',
+        'That sounds like a great idea!',
+        'Sorry to bother you, but do you have the time?',
+        'Let\'s keep in touch!',
+
+        // 💻 Trabalho e Reuniões (Business English)
+        'Could you send me the details via email?',
+        'Let\'s schedule a call for tomorrow morning.',
+        'I agree with your point of view.',
+        'We need to finish this project by Friday.',
+        'Thank you for your quick response.',
+        'Could you clarify that last point?',
+        'I am running a few minutes late.',
+        'What are the next steps for our team?',
+        'Please let me know if you have any questions.',
+        'I will get back to you as soon as possible.',
+
+        // 🆘 Emergências e Pedidos de Ajuda
+        'I think I am lost. Can you help me?',
+        'Where is the nearest hospital or pharmacy?',
+        'Could you call an ambulance, please?',
+        'I lost my wallet and passport.',
+        'Can you help me carry this bag?',
+        'Is there a doctor who speaks English here?',
+        'Where is the emergency exit?',
+        'Please call the police immediately!',
+        'I need to contact my family.',
+        'Everything is going to be okay.'
       ]);
       const [phraseIdx, setPhraseIdx] = useState(0);
       const [transcript, setTranscript] = useState('');
@@ -868,9 +1014,20 @@
       (async () => {
       try {
       setFeedback('Analyzing...');
-      const prompt = `The target phrase is: "${phrases[phraseIdx]}"
-      The user said: "${transcript}"
-      Give brief pronunciation/accuracy feedback in Portuguese. Output plain text (2-4 sentences).`;
+      const prompt = `You are an expert English pronunciation coach and speech therapist.
+      The student is a native Portuguese (PT-BR) speaker practicing English pronunciation.
+
+      Target phrase: "${phrases[phraseIdx]}"
+      What the user actually said (transcript): "${transcript}"
+
+      TASK:
+      Evaluate the pronunciation and accuracy of the student's speech by comparing the target phrase with their transcript.
+
+      RULES:
+      1. Write brief, constructive feedback in Portuguese (PT-BR) (2 to 4 sentences).
+      2. If there are noticeable differences or mispronunciations inferred from the transcript, highlight which specific words need attention and give a pronunciation tip.
+      3. If the speech matches well or is close, praise the student and encourage them, but keep it concise.
+      4. Output plain text ONLY (do not use JSON, do not use markdown code blocks).`;
       const txt = await ollamaChat(settings.baseUrl, settings.apiKey, settings.model, [{role:'user', content: prompt}], 'You are a friendly speaking coach. Reply in Portuguese.');
       setFeedback(txt);
       } catch (e) { setFeedback('Error: '+e.message); }
