@@ -127,6 +127,7 @@ ollama pull qwen2.5:7b
 1. Baixe o arquivo `index.html`.
 2. Dê **dois cliques** no arquivo para abri-lo diretamente no seu navegador.
 
+
 ### Opção B: Servidor Local (Recomendado)
 
 Para evitar restrições locais de scripts no navegador:
@@ -140,6 +141,19 @@ npx serve .
 ```
 
 Em seguida, acesse `http://localhost:8080` no navegador.
+
+### Opção C: Docker (Recomendado)
+
+Clone o repositório e execute o seguinte comando
+
+```bash
+# Utilizando docker compose
+docker compose up -d --build
+
+# acesse http://localhost:3847
+```
+
+Em seguida, acesse `http://localhost:3847` no navegador.
 
 ## 🔌 Configuração de CORS no Ollama
 
