@@ -208,25 +208,40 @@
       }
 
       const DEFAULT_ARTICLES = [
-      { id:'a1-1', level:'A1', title:'Meet Anna', text:'Hello! My name is Anna. I am from Brazil. I live in São Paulo. I have a dog named Max. My favorite color is blue. I like coffee and bread. Nice to meet you!' },
-      { id:'a1-2', level:'A1', title:'A Busy Day', text:'I wake up at seven. I drink water. I go to work by bus. I eat lunch at noon. In the evening I watch TV. I sleep at ten. Tomorrow I will visit my friend.' },
-      { id:'a2-1', level:'A2', title:'Weekend Plan', text:'Last weekend was great. On Saturday I cleaned my room and went shopping. On Sunday I cooked pasta for my family. We talked and laughed a lot. I really enjoy spending time with them.' },
-      { id:'a2-2', level:'A2', title:'New Job', text:'Maria started a new job last month. She works in an office downtown. She likes her coworkers and the coffee machine. She is still learning the computer system, but she feels happy and motivated.' },
-      { id:'b1-1', level:'B1', title:'Learning a Language', text:'Learning a new language takes time and patience. Practice every day, even for fifteen minutes. Watch movies, listen to podcasts, and talk to native speakers when possible. Mistakes are normal and help you improve faster.' },
-      { id:'b1-2', level:'B1', title:'City Life', text:'Living in a big city has many advantages, such as better jobs and entertainment. However, traffic and noise can be stressful. Many people choose suburbs for a quieter lifestyle while commuting daily to work.' },
-      { id:'b2-1', level:'B2', title:'Remote Work', text:'Remote work has transformed how companies operate. Employees enjoy flexibility, but some struggle with isolation and blurred boundaries between personal and professional life. Successful teams invest in strong communication tools and regular virtual check-ins.' },
-      { id:'b2-2', level:'B2', title:'Climate Change', text:'Climate change remains one of humanity greatest challenges. Rising temperatures affect agriculture, health, and ecosystems worldwide. Governments and individuals must act collectively, adopting sustainable practices and innovative technologies to reduce emissions.' },
-      { id:'c1-1', level:'C1', title:'Artificial Intelligence', text:'Artificial intelligence is reshaping industries at an unprecedented pace. While automation boosts productivity, it also raises ethical questions regarding privacy, bias, and job displacement. Policymakers must balance innovation with safeguards that protect human dignity.' },
-      { id:'c1-2', level:'C1', title:'Cultural Exchange', text:'Globalization has made cultural exchange effortless, yet it risks homogenizing traditions. Preserving linguistic diversity and local customs while embracing global perspectives remains a delicate challenge for educators and communities alike.' },
-      ];
+        // Nível A1
+        { id:'a1-1', level:'A1', title:'Meet Anna', text:'Hello! My name is Anna. I am from Brazil. I live in São Paulo. I have a dog named Max. My favorite color is blue. I like coffee and bread. Nice to meet you!' },
+        { id:'a1-2', level:'A1', title:'A Busy Day', text:'I wake up at seven. I drink water. I go to work by bus. I eat lunch at noon. In the evening I watch TV. I sleep at ten. Tomorrow I will visit my friend.' },
+        { id:'a1-3', level:'A1', title:'My Family', text:'I live with my parents and my sister. My father is a teacher and my mother is a doctor. We have a big house with a garden. On Sundays, we cook together and play board games.' },
 
+        // Nível A2
+        { id:'a2-1', level:'A2', title:'Weekend Plan', text:'Last weekend was great. On Saturday I cleaned my room and went shopping. On Sunday I cooked pasta for my family. We talked and laughed a lot. I really enjoy spending time with them.' },
+        { id:'a2-2', level:'A2', title:'New Job', text:'Maria started a new job last month. She works in an office downtown. She likes her coworkers and the coffee machine. She is still learning the computer system, but she feels happy and motivated.' },
+        { id:'a2-3', level:'A2', title:'My Favorite Hobby', text:'Painting is my favorite hobby. Every Saturday morning, I set up my canvas near the window. I love mixing colors and creating landscapes. It helps me relax after a long week of work.' },
+
+        // Nível B1
+        { id:'b1-1', level:'B1', title:'Learning a Language', text:'Learning a new language takes time and patience. Practice every day, even for fifteen minutes. Watch movies, listen to podcasts, and talk to native speakers when possible. Mistakes are normal and help you improve faster.' },
+        { id:'b1-2', level:'B1', title:'City Life', text:'Living in a big city has many advantages, such as better jobs and entertainment. However, traffic and noise can be stressful. Many people choose suburbs for a quieter lifestyle while commuting daily to work.' },
+        { id:'b1-3', level:'B1', title:'A Memorable Trip', text:'Last year I traveled to Japan for two weeks. The culture was fascinating, and the food was incredible. Even though I got lost a few times, friendly locals always helped me find my way.' },
+
+        // Nível B2
+        { id:'b2-1', level:'B2', title:'Remote Work', text:'Remote work has transformed how companies operate. Employees enjoy flexibility, but some struggle with isolation and blurred boundaries between personal and professional life. Successful teams invest in strong communication tools and regular virtual check-ins.' },
+        { id:'b2-2', level:'B2', title:'Climate Change', text:'Climate change remains one of humanity greatest challenges. Rising temperatures affect agriculture, health, and ecosystems worldwide. Governments and individuals must act collectively, adopting sustainable practices and innovative technologies to reduce emissions.' },
+        { id:'b2-3', level:'B2', title:'The Power of Habits', text:'Forming new habits requires consistency and environmental design. Research shows that linking a new behavior to an existing routine makes it much easier to sustain long-term behavioral changes.' },
+
+        // Nível C1
+        { id:'c1-1', level:'C1', title:'Artificial Intelligence', text:'Artificial intelligence is reshaping industries at an unprecedented pace. While automation boosts productivity, it also raises ethical questions regarding privacy, bias, and job displacement. Policymakers must balance innovation with safeguards that protect human dignity.' },
+        { id:'c1-2', level:'C1', title:'Cultural Exchange', text:'Globalization has made cultural exchange effortless, yet it risks homogenizing traditions. Preserving linguistic diversity and local customs while embracing global perspectives remains a delicate challenge for educators and communities alike.' },
+        { id:'c1-3', level:'C1', title:'The Economics of Happiness', text:'Beyond gross domestic product, modern economists increasingly advocate for measuring national progress through subjective well-being, public health, and environmental sustainability metrics to ensure holistic societal growth.' }
+      ];
       const SCENARIOS = [
-      { id: 'job', name: 'Job Interview', prompt: 'Practice a job interview in English. You are the interviewer.' },
-      { id: 'travel', name: 'Travel & Dining', prompt: 'Practice ordering food and asking for directions while traveling.' },
-      { id: 'casual', name: 'Casual Conversation', prompt: 'Have a casual friendly conversation in English.' },
-      { id: 'voice', name: 'Voice Conversation', prompt: 'Free conversation practice focused on speaking/listening.' },
+        { id: 'job', name: 'Job Interview', prompt: 'Practice a job interview in English. You are the interviewer asking professional and behavioral questions.' },
+        { id: 'travel', name: 'Travel & Dining', prompt: 'Practice ordering food, asking for directions, and checking in at a hotel while traveling.' },
+        { id: 'casual', name: 'Casual Conversation', prompt: 'Have a casual friendly conversation in English about hobbies, movies, and daily life.' },
+        { id: 'voice', name: 'Voice Conversation', prompt: 'Free conversation practice focused on speaking/listening fluency and natural phrasing.' },
+        { id: 'shopping', name: 'Shopping & Returns', prompt: 'Practice shopping for clothes, asking about sizes, and requesting a product exchange or refund at a store.' },
+        { id: 'doctor', name: 'Doctor Appointment', prompt: 'Practice describing symptoms, health issues, and understanding medical advice at a clinic.' },
+        { id: 'tech', name: 'Tech Support', prompt: 'Practice explaining a software or hardware problem and following troubleshooting steps with a support agent.' }
       ];
-
       /* ---------------- UI primitives ---------------- */
       function Button({ children, onClick, variant='primary', className='', disabled=false, type='button' }) {
       const base = 'inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm';
