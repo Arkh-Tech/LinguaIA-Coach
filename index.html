@@ -259,7 +259,7 @@
       }
 
       /* ---------------- Word Modal (Reading) ---------------- */
-      function WordModal({ word, onClose, settings, onSpeak, onSaveVocab }) {
+      function WordModal({ word, onClose, settings, onSpeak, onSaveVocab, contextSentence }) {
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState('');
@@ -276,12 +276,13 @@
       const prompt = `You are an expert English vocabulary coach and bilingual lexicographer.
 
       TASK:
-      Analyze the English word or phrase "${clean}".
+      Analyze the English word or phrase "${clean}" in the context of this sentence: "${contextSentence}".
 
       RULES:
-      1. "translation": Provide the natural Brazilian Portuguese translation (string).
-      2. "definition": Provide a clear, simple explanation in English, followed by its translation in Portuguese in parentheses (string).
-      3. "examples": Provide an array of EXACTLY 3 practical real-world example sentences in English. Each sentence should ideally include its natural Portuguese translation in parentheses right after.
+      1. CONTEXT AWARENESS: Look at the sentence context. If "${clean}" is used as a proper noun (name of a person, place, etc., like "Anna" in "Meet Anna"), classify it as a Proper Noun, set translation to "${clean} (Nome próprio)", definition to "A person's name (Nome próprio)", and provide natural example sentences using it as a name.
+      2. "translation": Provide the natural Brazilian Portuguese translation based on the context.
+      3. "definition": Provide a clear, simple explanation in English, followed by its translation in Portuguese in parentheses.
+      4. "examples": Provide an array of EXACTLY 3 practical real-world example sentences in English with their Portuguese translation in parentheses.
 
       OUTPUT FORMAT:
       Output strictly raw valid JSON. Do not include markdown code blocks (such as \`\`\`json).
@@ -918,7 +919,7 @@
     </Card>
       )}
 
-      <WordModal word={selectedWord} onClose={()=>setSelectedWord(null)} settings={settings} onSpeak={onSpeak} onSaveVocab={handleSave} />
+      <WordModal word={selectedWord} contextSentence={article.text} onClose={()=>setSelectedWord(null)} settings={settings} onSpeak={onSpeak} onSaveVocab={handleSave} />
     </div>
       );
       }
